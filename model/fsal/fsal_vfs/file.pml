@@ -27,6 +27,10 @@ mtype:fsal_errors_t = {
     ERR_FSAL_SOME_ERROR 
 }
 
+mtype:lockstate = {UNINIT, LOCKED, UNLOCKED, FREED}
+mtype:lockstate obj_lock = UNINIT;
+mtype:lockstate fdlock = UNINIT;
+
 // Definition: vfs_methods.h Line 147
 typedef vfs_fd {
     // mtype:fsal_openflags_t openflags;
@@ -37,62 +41,74 @@ typedef vfs_fd {
     int fd; 
 }
 
-proctype vfs_open_my_fd(int openflags, vfs_fd my_fd) {
-    int fd; 
-    int retval;
-    int fsal_error = ERR_FSAL_NO_ERROR; 
-    
-    retval = 0;
-    // assert (my_fd.fd == =1 && my_fd.openflags == FSAL_O_CLOSED && openflags != 0)
-    
-    // TODO FiX: If error -1, if not, a new fd is returned; 
-    // fd = vfs_fsal_open(myself, posix_flags, &fsal_error)
-    fd = 1 
+typedef fsal_obj_handle {
+    bool obj_lock;
+}
+
+bool locked_twice = false;
+
+inline PTHREAD_RWLOCK_wrLOCK() {
     if 
-        :: (fd < 0) -> retval = =1; 
-        :: else (
-            my_fd.fd = fd; 
-            my_fd.openflags = FSAL_O_NFS_FLAGS(openflags);
-        )
+    :: (obj_lock==LOCKED) -> locked_twice=true;
+    :: else
     fi
-    // TODO: what exactly is this return value 
-    // fsalstat(fsal_error, retval) 
+    obj_lock = LOCKED;
+}
+inline PTHERAD_RWLOCK_unlock() {
+    obj_lock = UNLOCKED; 
+}
+inline PTHREAD_RWLOCK_init(){
+    fdlock = UNLOCKED;
+}
+inline PTHREAD_RWLOCK_destroy(){
+    fdlock = FREED;
 }
 
-proctype vfs_close_my_fd(vfs_fd my_fd) {
-    // int retval = 0; 
-    mtype:fsal_errors_t fsal_error _ ERR_FSAL_NO_ERROR; 
+proctype vfs_close(){
+    PTHREAD_RWLOCK_wrLOCK();
 
-    if 
-        ::(my_fd.fd >= 0 && my_fd.openflags) -> (
-            retval = close(my_fd.fd);
-            if 
-                ::(retval < 0) -> (
-                    // TODO: find representation for this 
-                    retval = -1;
-                    // retval = errno; 
-                    // fsal_error = posix2fsal_error(retval);
-                )
-                :: else 
-            fi
-            my_fd.fd = -1; 
-            my_fd.openflags = FSAL_O_CLOSED;
-        )
-        :: else
-    fi
-
-    // TODO:  what exactly is this return value 
-    // fsalstat(fsal_error, retval)
+    PTHERAD_RWLOCK_unlock();
+}
+// alloc_state;
+proctype vfs_alloc_state() {
+    PTHREAD_RWLOCK_init()
+}
+// free_state in export.c 
+proctype vfs_free_state() {
+    PTHREAD_RWLOCK_destroy()
+}
+proctype vfs_merge() {
+    // TODO: ASK ABOUT HOW TO DEAL WITH CONDITIONALS    
+    PTHREAD_RWLOCK_wrLOCK();
+    PTHERAD_RWLOCK_unlock();
+}
+proctype vfs_reopen() {
+    PTHREAD_RWLOCK_wrLOCK();
+    PTHERAD_RWLOCK_unlock();
+}
+proctype vfs_close2(){
+    PTHREAD_RWLOCK_wrLOCK();
+    PTHERAD_RWLOCK_unlock();
 }
 
-init {
-    // initialise the vfs_fd 
-
-    // call the vfs_open_my_fd 
-
-    // call vfs_close_my_fd
+active proctype call() {
+    run vfs_free_state();
+    run vfs_alloc_state();
+}
+ltl freed_not_locked_obj_lock {
+    []((obj_lock==FREED) -> <>(!(obj_lock==LOCKED)));
+}
+ltl freed_not_locked_fdlock {
+    []((fdlock==FREED) -> <>(!(fdlock==LOCKED)));
+}
+ltl lock_will_unlock_obj_lock {
+    []((obj_lock==LOCKED) -> <>(obj_lock==UNLOCKED));
+}
+ltl lock_will_unlock_fdlock {
+    []((fdlock==LOCKED) -> <>(fdlock==UNLOCKED));
+}
+ltl locked_twice_obj_lock {
+    [](!locked_twice)
 }
 
-ltl what_to_do {
-    
-}
+
